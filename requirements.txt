@@ -1,0 +1,18 @@
+--find-links https://download.pytorch.org/whl/cpu
+websockets
+aiohttp
+torch
+torchvision
+PyYAML
+rich
+pika
+paho-mqtt
+numpy
+fedlab
+pandas
+matplotlib
+medmnist
+scapy
+grpcio==1.75.1
+grpcio-tools==1.75.1
+protobuf
