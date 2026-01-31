@@ -3,6 +3,9 @@
 # Working directory (current directory)
 WORKSPACE_DIR=$(pwd)
 
+# One timestamp per full script execution (Option 1)
+RUN_TS=$(date +"%Y%m%d_%H%M%S")
+
 # Function to terminate all Python processes and free the port
 cleanup() {
     echo "Cleaning up background jobs..."
@@ -24,47 +27,87 @@ run_simulation() {
     local variant=$8
     local file_name=$9
 
-
     local log_file="$LOG_DIR/${mode}_${client_number}.log"
-    
-    echo "Running: mode=$mode, fl_method=$fl_method, port=$port"
-    python3 "$WORKSPACE_DIR/FedOpt/src/run.py" --mode "$mode" --rounds 5 --protocol "$protocol" --port "$port"  --fl_method "$fl_method"  --alpha "$alpha" --accuracy_file "$file_name" &> "$log_file" &
-    echo "Log saved to $log_file"
+	# Default rounds for most algorithms
+    local rounds=5
+	
+	# FedBuff needs enough updates to fill the buffer (K) several times
+	if [ "$fl_method" == "FedBuff" ]; then
+		local K="${FEDBUFF_K:-10}"   # FEDBUFF_K est optionnel, défaut=10
+		local FLUSHES=5
+		rounds=$((K * FLUSHES))
+	fi
+
+	# extra_args=()
+	# if [ "$fl_method" == "FedBuff" ]; then
+		# extra_args+=(--fedbuff_buffer_size "$K")
+	# fi
+	extra_args=()
+	if [ "$fl_method" == "FedBuff" ]; then
+		extra_args+=(--fedbuff_buffer_size "$K")
+
+		# Timeout (optionnel). Si FEDBUFF_FLUSH_TIMEOUT_S vaut 0 => désactivé
+		# TIMEOUT_S="${FEDBUFF_FLUSH_TIMEOUT_S:-0}"
+		# CHECK_S="${FEDBUFF_TIMEOUT_CHECK_INTERVAL_S:-0.2}"
+		# MIN_UPDATES="${FEDBUFF_TIMEOUT_MIN_UPDATES:-1}"
+
+		if [[ "$TIMEOUT_S" != "0" && "$TIMEOUT_S" != "0.0" ]]; then
+			extra_args+=(--fedbuff_flush_timeout_s "$TIMEOUT_S")
+			extra_args+=(--fedbuff_timeout_check_interval_s "$CHECK_S")
+			extra_args+=(--fedbuff_timeout_min_updates "$MIN_UPDATES")
+		fi
+	fi
+
+	
+	echo "Running: mode=$mode, fl_method=$fl_method, port=$port, rounds=$rounds"
+	python3 "$WORKSPACE_DIR/FedOpt/src/run.py" \
+		--mode "$mode" \
+		--rounds "$rounds" \
+		--protocol "$protocol" \
+		--port "$port" \
+		--fl_method "$fl_method" \
+		--alpha "$alpha" \
+		--accuracy_file "$file_name" \
+		"${extra_args[@]}" \
+		&> "$log_file" &
+
+    # echo "Running: mode=$mode, fl_method=$fl_method, port=$port, rounds=$rounds"
+    # python3 "$WORKSPACE_DIR/FedOpt/src/run.py" \
+        # --mode "$mode" \
+        # --rounds "$rounds" \
+        # --protocol "$protocol" \
+        # --port "$port" \
+        # --fl_method "$fl_method" \
+        # --alpha "$alpha" \
+        # --accuracy_file "$file_name" \
+        # &> "$log_file" &
+    # echo "Log saved to $log_file"
 }
 
-PORT="8082"
-PROTOCOL="grpc"
+#PORT="8082"
+#PROTOCOL="grpc"
 
-# PORT=1883
-# PROTOCOL="mqtt"
+PORT="1883"
+PROTOCOL="mqtt"
 
 NUM_CLIENTS=5
 
-ALGORITHMs=("Unweighted")
+#ALGORITHMs=("Unweighted")
+ALGORITHMs=("FedBuff")
 MUs=(0.1)
 ALPHA=(10)
 VARIANTS=("hinge" "polynomial")
 
-
-
-# # Porta usata per il server e i client (modifica qui se necessario)
-# PORT="50051"
-# PROTOCOL="grpc"
-# NUM_CLIENTS=3
-
-
-# # Algorithms to execute
-# ALGORITHMs=("ASOFed")
-# # Parameters for FedAsync
-# MUs=(0.1)
-# ALPHA=(10)
-# VARIANTS=("hinge" "polynomial")
-
 # Run cleanup before starting new simulations
 cleanup "$PORT"
 
-# # If using MQTT protocol, start the Mosquitto server
+# If using MQTT protocol, ensure Mosquitto exists and start the broker
 if [ "$PROTOCOL" == "mqtt" ]; then
+    if ! command -v mosquitto >/dev/null 2>&1; then
+        echo "ERROR: mosquitto not found. Install it with:"
+        echo "  sudo apt update && sudo apt install -y mosquitto mosquitto-clients"
+        exit 1
+    fi
     mosquitto -p "$PORT" -d
 fi
 
@@ -72,45 +115,46 @@ fi
 trap 'cleanup "$PORT"' EXIT
 
 # Loop through the algorithms
-# Create a directory for logs (if it doesn't exist)
 for alpha in "${ALPHA[@]}"; do
     for ALGORITHM in "${ALGORITHMs[@]}"; do
         if [ "$ALGORITHM" == "FedAsync" ]; then
             for variant in "${VARIANTS[@]}"; do
                 for MU_0 in "${MUs[@]}"; do
                     echo "Starting simulations for algorithm: $ALGORITHM"
-                    LOG_DIR="$WORKSPACE_DIR/logs/$PROTOCOL/$ALGORITHM/$variant/alpha${alpha}_10clients_2"
-                    rm -rf "$LOG_DIR"
+
+                    LOG_DIR="$WORKSPACE_DIR/logs/$PROTOCOL/$ALGORITHM/$variant/${RUN_TS}_alpha${alpha}_${NUM_CLIENTS}clients"
                     mkdir -p "$LOG_DIR"
+                    ACC_FILE="$LOG_DIR/accuracy_alpha${alpha}_${NUM_CLIENTS}clients.png"
 
                     # Start the server
-                    run_simulation "server" "$PROTOCOL" "$ALGORITHM" "$PORT" "0" "$alpha" "$MU_0" "$variant" "$LOG_DIR/accuracy_alpha${alpha}.png"
+                    run_simulation "server" "$PROTOCOL" "$ALGORITHM" "$PORT" "0" "$alpha" "$MU_0" "$variant" "$ACC_FILE"
                     sleep 5 # Wait for the server to start
 
-                    # Start client 1 to NUM_CLIENTS
+                    # Start clients 1..NUM_CLIENTS
                     for i in $(seq 1 $NUM_CLIENTS); do
-                        run_simulation "client" "$PROTOCOL" "$ALGORITHM" "$PORT" "$i" "$alpha" "$MU_0" "$variant" "$WORKSPACE_DIR/logs/$PROTOCOL/$ALGORITHM/$variant/accuracy_alpha${alpha}.png"
-                    done   
-                    # Wait for all background processes to finish
+                        run_simulation "client" "$PROTOCOL" "$ALGORITHM" "$PORT" "$i" "$alpha" "$MU_0" "$variant" "$ACC_FILE"
+                    done
+
                     wait
                 done
             done
         else
             for MU_0 in "${MUs[@]}"; do
                 echo "Starting simulations for algorithm: $ALGORITHM"
-                LOG_DIR="$WORKSPACE_DIR/logs/$PROTOCOL/$ALGORITHM/alpha${alpha}_10clients_2"
-                rm -rf "$LOG_DIR"
+
+                LOG_DIR="$WORKSPACE_DIR/logs/$PROTOCOL/$ALGORITHM/${RUN_TS}_alpha${alpha}_${NUM_CLIENTS}clients"
                 mkdir -p "$LOG_DIR"
+                ACC_FILE="$LOG_DIR/accuracy_alpha${alpha}_${NUM_CLIENTS}clients.png"
 
                 # Start the server
-                run_simulation "server" "$PROTOCOL" "$ALGORITHM" "$PORT" "0" "$alpha" "$MU_0" "" "$LOG_DIR/accuracy_alpha${alpha}_10clients_2.png"
+                run_simulation "server" "$PROTOCOL" "$ALGORITHM" "$PORT" "0" "$alpha" "$MU_0" "" "$ACC_FILE"
                 sleep 5 # Wait for the server to start
 
-                # Start client 1 to NUM_CLIENTS
+                # Start clients 1..NUM_CLIENTS
                 for i in $(seq 1 $NUM_CLIENTS); do
-                    run_simulation "client" "$PROTOCOL" "$ALGORITHM" "$PORT" "$i" "$alpha" "$MU_0" "" "$WORKSPACE_DIR/logs/$PROTOCOL/$ALGORITHM/accuracy_alpha${alpha}_10clients_2.png"
-                done   
-                # Wait for all background processes to finish
+                    run_simulation "client" "$PROTOCOL" "$ALGORITHM" "$PORT" "$i" "$alpha" "$MU_0" "" "$ACC_FILE"
+                done
+
                 wait
             done
         fi
