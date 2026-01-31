@@ -7,6 +7,8 @@ from FedOpt.src.Federation.FedDyn.FedDyn import FedDyn, FedDynModel
 from FedOpt.src.Federation.FedAvgN.FedAvgN import FedAvgN, FedAvgNModel
 from FedOpt.src.Federation.AsyncFedED.AsyncFedED import AsyncFedED, AsyncFedEDModel
 from FedOpt.src.Federation.Unweighted.Unweighted import Unweighted, UnweightedModel
+from FedOpt.src.Federation.FedBuff.FedBuff import FedBuff, FedBuffModel
+
 
 # server side aggregation
 def federation_manager(config=None):
@@ -27,6 +29,8 @@ def federation_manager(config=None):
         return ASOFed(config)
     elif method == "Unweighted":
         return Unweighted(config)
+    elif method == "FedBuff":
+        return FedBuff(config)    
     else:
         raise ValueError("Unsupported federation method: " + config["fl_method"])
 
@@ -53,5 +57,7 @@ def model_manager(config=None):
         return ASOFedModel(config)
     elif method == "Unweighted":
         return UnweightedModel(config)
+    elif method == "FedBuff":
+        return FedBuffModel(config)            
     else:
         raise ValueError("Invalid parameter: " + config["fl_method"])
