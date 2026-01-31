@@ -1,4 +1,4 @@
-# FedOpt: A Communication-Flexible Federated Learning Framework
+# FedOpt: A Communication-Flexible Federated Learning 
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python Version">
