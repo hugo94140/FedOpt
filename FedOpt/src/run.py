@@ -72,6 +72,12 @@ def main():
     parser.add_argument('--asofed_global_lr', help='')
     parser.add_argument('--accuracy_file', default=None, help='Accuracy file path')
     parser.add_argument('--loss_file', default=None, help='Loss file path')
+    # FedBuff settings
+    parser.add_argument('--fedbuff_buffer_size', type=int, default=None, help='FedBuff buffer size K (overrides server_config.fedBuff_buffer_size)')
+    parser.add_argument('--fedbuff_flush_timeout_s', type=float, default=None, help='Flush timeout in seconds (overrides server_config.fedBuff_flush_timeout_s)')
+    parser.add_argument('--fedbuff_timeout_check_interval_s', type=float, default=None, help='Watchdog check interval in seconds (overrides server_config.fedBuff_timeout_check_interval_s)')
+    parser.add_argument('--fedbuff_timeout_min_updates', type=int, default=None, help='Minimum buffered updates before timeout flush (overrides server_config.fedBuff_timeout_min_updates)')
+
 
     parser.add_argument('--index', help='Client index')
     
@@ -89,6 +95,22 @@ def main():
             config = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
             print(exc)
+
+    # FedBuff: override K via CLI flag
+    if args.fedbuff_buffer_size is not None:
+        config.setdefault('server_config', {})
+        config['server_config']['fedBuff_buffer_size'] = int(args.fedbuff_buffer_size)
+    if args.fedbuff_flush_timeout_s is not None:
+        config.setdefault('server_config', {})
+        config['server_config']['fedBuff_flush_timeout_s'] = float(args.fedbuff_flush_timeout_s)
+
+    if args.fedbuff_timeout_check_interval_s is not None:
+        config.setdefault('server_config', {})
+        config['server_config']['fedBuff_timeout_check_interval_s'] = float(args.fedbuff_timeout_check_interval_s)
+
+    if args.fedbuff_timeout_min_updates is not None:
+        config.setdefault('server_config', {})
+        config['server_config']['fedBuff_timeout_min_updates'] = int(args.fedbuff_timeout_min_updates)
 
     # Update YAML configuration with argparse values (grouped as before)
     config['ip'] = args.ip if args.ip else config['ip']
